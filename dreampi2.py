@@ -41,7 +41,7 @@ def runMgetty():
         
 # Write code to run as daemon when I'm not lazy.
 
-def send_command(modem, command):
+def send_command(modem, command, timeout=30):
     final_command = "{}\r\n".format(command).encode()
     modem.write(final_command)
     modem.flush()
@@ -49,6 +49,7 @@ def send_command(modem, command):
     #time.sleep(0.5)
 
     #line = modem.readline()
+    start = datetime.now()
     line = ""
     
     VALID_RESPONSES = ("OK", "ERROR", "CONNECT", "VCON")
@@ -68,6 +69,9 @@ def send_command(modem, command):
 
         if '\n' in new_data:
             line = ""
+
+        if (datetime.now() - start).total_seconds() >= timeout:
+            raise IOError("There was a timeout while waiting for a response from the modem")
 
 def killMgetty():
     subprocess.Popen(['sudo', 'killall', '-USR1', 'mgetty'])
