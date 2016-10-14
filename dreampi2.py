@@ -34,7 +34,7 @@ def runPon():
     #time.sleep(1)
 
 def runMgetty():
-    subprocess.Popen(['sudo', '/sbin/mgetty', '-s', "{}".format(COMM_SPEED), '-D', "/dev/{}".format(MODEM_DEVICE), "-m", "\"\" ATH0 OK"],
+    subprocess.Popen(['sudo', '/sbin/mgetty', '-s', "{}".format(COMM_SPEED), '-D', "/dev/{}".format(MODEM_DEVICE), "-m", "\"\" ATZ0 OK ATM0 OK ATH0 OK"],
         shell=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE)
@@ -61,6 +61,9 @@ def send_command(modem, command, timeout=30):
         line = line + new_data
         #print("OK" == line.strip())
         line = line.strip()
+        #if (new_data):
+        #    print("DATA FOUND: {}".format(new_data))
+        #    print('\n' in new_data)
         if line in VALID_RESPONSES:
             #logging.info("FOUND RESPONSE: BREAK")
             logging.info(line)
@@ -128,6 +131,8 @@ def main():
                 if delta > 3:
                     logging.info("Answering call...")
                     runMgetty()
+                    #send_command(modem, "ATZ0")
+                    #send_command(modem, "ATM0")
                     #send_command(modem, "ATH0")
                     #time.sleep(4)
                     #send_command(modem, "ATA")
