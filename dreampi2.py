@@ -51,9 +51,10 @@ def send_command(modem, command, timeout=30):
     #line = modem.readline()
     start = datetime.now()
     line = ""
-    
+
     VALID_RESPONSES = ("OK", "ERROR", "CONNECT", "VCON")
-    while True:
+    search = True
+    while search:
         new_data = modem.readline()
         #print("LINE {}\n".format(new_data))
         #line = line + new_data
@@ -64,11 +65,14 @@ def send_command(modem, command, timeout=30):
         #if (new_data):
         #    print("DATA FOUND: {}".format(new_data))
         #    print('\n' in new_data)
-        if line in VALID_RESPONSES:
-            #logging.info("FOUND RESPONSE: BREAK")
-            logging.info(line)
-            line = ""
-            break
+        # Partial match response in line
+        for response in VALID_RESPONSES:
+            if response in line:
+                #logging.info("FOUND RESPONSE: BREAK")
+                logging.info(line)
+                line = ""
+                search = False
+                break
 
         if '\n' in new_data:
             line = ""
