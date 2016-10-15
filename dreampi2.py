@@ -42,13 +42,12 @@ def runMgetty():
 # Write code to run as daemon when I'm not lazy.
 
 def send_command(modem, command, timeout=30):
-    final_command = "{}\r\n".format(command).encode()
-    modem.write(final_command)
+    final_command = "{}\r\n".format(command)
+    final_command_encoded = final_command.encode()
+    modem.write(final_command_encoded)
     modem.flush()
-    logging.info(final_command)
-    #time.sleep(0.5)
+    logging.info(final_command.strip() + '\n')
 
-    #line = modem.readline()
     start = datetime.now()
     line = ""
 
@@ -57,9 +56,9 @@ def send_command(modem, command, timeout=30):
     while search:
         new_data = modem.readline()
         #print("LINE {}\n".format(new_data))
-        #line = line + new_data
+        #line = line + new_data.decode()
         #print("LINE {}".format(new_data))
-        line = line + new_data
+        line = line + new_data.decode()
         #print("OK" == line.strip())
         line = line.strip()
         #if (new_data):
@@ -69,12 +68,12 @@ def send_command(modem, command, timeout=30):
         for response in VALID_RESPONSES:
             if response in line:
                 #logging.info("FOUND RESPONSE: BREAK")
-                logging.info(line)
+                logging.info(line + '\n')
                 line = ""
                 search = False
                 break
 
-        if '\n' in new_data:
+        if b'\n' in new_data:
             line = ""
 
         if (datetime.now() - start).total_seconds() >= timeout:
@@ -98,13 +97,9 @@ def initModem():
     # Send the initialization string to the modem
     send_command(modem, "ATZ0") # RESET
     send_command(modem, "ATE0") # Don't echo our responses
-    #time.sleep(0.5)
     send_command(modem, "ATM0")
-    #time.sleep(0.5)
     send_command(modem, "AT+FCLASS=8")  # Switch to Voice mode
-    #time.sleep(0.5)
     send_command(modem, "AT+VLS=1") # Go online
-    #time.sleep(0.5)
 
     if "--enable-dial-tone" in sys.argv:
         print("Dial tone enabled, starting transmission...")
