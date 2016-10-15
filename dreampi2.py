@@ -9,7 +9,7 @@ import sys
 import sh
 import time
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def graphic():
     print("     ____                            ____  _    ___  ")
@@ -28,9 +28,14 @@ MODEM_DEVICE = "ttyUSB0"
 COMM_SPEED = 115200
 #COMM_SPEED = 38400
 
+dial_tone_wav = None
+time_since_last_dial_tone = 0
+dial_tone_counter = 0
+sending_tone = False
+
 def runPon():
     #time.sleep(2)
-    subprocess.Popen(["sudo", "pon", "dreamcast"])
+    logging.info(subprocess.check_output(["sudo", "pon", "dreamcast"]))
     #time.sleep(1)
 
 def runMgetty():
@@ -95,22 +100,94 @@ def initModem():
     modem = modemConnect()
 
     # Send the initialization string to the modem
-    send_command(modem, "ATZ0") # RESET
-    send_command(modem, "ATE0") # Don't echo our responses
-    send_command(modem, "ATM0")
+    resetModem(modem)
     send_command(modem, "AT+FCLASS=8")  # Switch to Voice mode
-    send_command(modem, "AT+VLS=1") # Go online
+    send_command(modem, "AT+VLS=1") # Go off-hook
 
     if "--enable-dial-tone" in sys.argv:
-        print("Dial tone enabled, starting transmission...")
-        send_command(modem, "AT+VTX=1") # Transmit audio (for dial tone)
+        print("Dial tone enabled, starting transmission...\n")
+        send_command(modem, "AT+VSM=128,8000")
+        send_command(modem, "AT+VTX") # Transmit audio (for dial tone)
+        # Generate tone via modem. Only lasts 4 seconds.
+        #send_command(modem, "AT+VTS=[440,350,400]")
 
     logging.info("Setup complete, listening...")
 
     return modem
 
+def disconnectModem(modem):
+    if modem and modem.isOpen():
+        modem.close()
+        modem = None
+        logger.info("Serial interface terminated.")
+
+def resetModem(modem):
+    send_command(modem, "ATZ0") # RESET
+    send_command(modem, "ATE0") # Don't echo our responses
+    send_command(modem, "ATM0") # Disable modem speaker
+
+def read_dial_tone():
+    global dial_tone_wav
+    this_dir = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
+    dial_tone_path = os.path.join(this_dir, "dial-tone.wav")
+
+    try:
+        with open(dial_tone_path, "rb") as f:
+            dial_tone = f.read() # Read the entire wav file
+            dial_tone = dial_tone[44:] # Strip the header (44 bytes)
+            dial_tone_wav = dial_tone
+    except IOError as e:
+        logging.warning("Could not find dial tone wav file. Tone generation not possible.")
+
+def start_dial_tone(modem):
+    global sending_tone, time_since_last_dial_tone, dial_tone_counter
+    if dial_tone_wav:
+        sending_tone = True
+        #time_since_last_dial_tone = datetime.now() - timedelta(seconds=100)
+        time_since_last_dial_tone = 0
+        dial_tone_counter = 0
+
+def stop_dial_tone(modem):
+    global sending_tone
+    if sending_tone:
+        modem.write("\0{}{}\r\n".format(chr(0x10), chr(0x03)).encode())
+        modem.flush()
+        send_escape(modem)
+        send_command(modem, "ATH0") # Go on-hook
+        resetModem(modem)
+        sending_tone = False
+
+def send_escape(modem):
+    time.sleep(1.0)
+    modem.write(b"+++")
+    modem.flush()
+    time.sleep(1.0)
+
+def update_dial_tone(modem):
+    global time_since_last_dial_tone, dial_tone_counter
+    now = datetime.now()
+    if sending_tone and dial_tone_wav:
+        # Keep sending dial tone
+        BUFFER_LENGTH = 1000
+        TIME_BETWEEN_UPLOADS_MS = (1000.0 / 8000.0) * BUFFER_LENGTH
+        if time_since_last_dial_tone:
+            milliseconds = (now - time_since_last_dial_tone).microseconds / 1000.0
+        else:
+            milliseconds = 0.0
+
+        if not time_since_last_dial_tone or milliseconds >= TIME_BETWEEN_UPLOADS_MS:
+                tonebytes = dial_tone_wav[dial_tone_counter:dial_tone_counter+BUFFER_LENGTH]
+                dial_tone_counter += BUFFER_LENGTH
+                if dial_tone_counter >= len(dial_tone_wav):
+                    dial_tone_counter = 0
+                logging.info("Broadcast dial tone segment")
+                modem.write(tonebytes)
+                modem.flush()
+                time_since_last_dial_tone = now
+
 def main():
-    
+    dial_tone_enabled = "--enable-dial-tone" in sys.argv
+
     graphic()
     
     modem = initModem()
@@ -118,6 +195,11 @@ def main():
     timeSinceDigit = None
     
     mode = "LISTENING"
+
+    if dial_tone_enabled:
+        read_dial_tone()
+        if dial_tone_wav:
+           start_dial_tone(modem)
     
     while True:
         if mode == "LISTENING":
@@ -129,15 +211,21 @@ def main():
                 delta = (now - timeSinceDigit).total_seconds()
                 if delta > 3:
                     logging.info("Answering call...")
+                    disconnectModem(modem)
                     runMgetty()
-                    #send_command(modem, "ATZ0")
-                    #send_command(modem, "ATM0")
+                    # Breifly wait while mgetty is starting.
+                    time.sleep(5)
+                    # Put line back off-hook
+                    killMgetty()
+
+                    #resetModem(modem)
                     #send_command(modem, "ATH0")
                     #time.sleep(4)
                     #send_command(modem, "ATA")
+                    #time.sleep(3)
                     #runPon()
-                    time.sleep(5)
-                    killMgetty()
+                    #disconnectModem(modem)
+
                     logging.info("Call answered!")
                     for line in sh.tail("-f", "/var/log/syslog", "-n", "10", _iter=True):
                         if mode == "LISTENING" and "remote IP address" in line:
@@ -151,7 +239,8 @@ def main():
                             modem.close()
                             modem = initModem() # Reset the modem
                             break
-                        
+
+            update_dial_tone(modem)
             char = modem.read(1).strip()
             if not char:
                 continue
@@ -163,6 +252,7 @@ def main():
                     char = modem.read()
                     digit = int(char)
                     timeSinceDigit = datetime.now()
+                    stop_dial_tone(modem)
                     print("{}".format(digit))
                 except (TypeError, ValueError):
                     pass
