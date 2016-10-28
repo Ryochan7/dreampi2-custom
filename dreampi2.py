@@ -25,8 +25,8 @@ def graphic():
 MODEM_DEVICE = "ttyUSB0"
 #COMM_SPEED = 230400
 #COMM_SPEED = 57600
-COMM_SPEED = 115200
-#COMM_SPEED = 38400
+#COMM_SPEED = 115200
+COMM_SPEED = 38400
 
 dial_tone_wav = None
 time_since_last_dial_tone = 0
@@ -34,9 +34,8 @@ dial_tone_counter = 0
 sending_tone = False
 
 def runPon():
-    #time.sleep(2)
+    logging.info("Starting pon...\n")
     logging.info(subprocess.check_output(["sudo", "pon", "dreamcast"]))
-    #time.sleep(1)
 
 def runMgetty():
     subprocess.Popen(['sudo', '/sbin/mgetty', '-s', "{}".format(COMM_SPEED), '-D', "/dev/{}".format(MODEM_DEVICE), "-m", "\"\" ATZ0 OK ATM0 OK ATH0 OK"],
@@ -63,7 +62,7 @@ def send_command(modem, command, timeout=30):
         #print("LINE {}\n".format(new_data))
         #line = line + new_data.decode()
         #print("LINE {}".format(new_data))
-        line = line + new_data.decode()
+        line = line + new_data.decode("unicode_escape")
         #print("OK" == line.strip())
         line = line.strip()
         #if (new_data):
@@ -106,7 +105,7 @@ def initModem():
 
     if "--enable-dial-tone" in sys.argv:
         print("Dial tone enabled, starting transmission...\n")
-        send_command(modem, "AT+VSM=128,8000")
+        send_command(modem, "AT+VSM=129,8000")
         send_command(modem, "AT+VTX") # Transmit audio (for dial tone)
         # Generate tone via modem. Only lasts 4 seconds.
         #send_command(modem, "AT+VTS=[440,350,400]")
@@ -118,8 +117,8 @@ def initModem():
 def disconnectModem(modem):
     if modem and modem.isOpen():
         modem.close()
-        modem = None
-        logger.info("Serial interface terminated.")
+        #modem = None
+        logging.info("Serial interface terminated.")
 
 def resetModem(modem):
     send_command(modem, "ATZ0") # RESET
@@ -154,6 +153,7 @@ def stop_dial_tone(modem):
         modem.flush()
         send_escape(modem)
         send_command(modem, "ATH0") # Go on-hook
+        time.sleep(1)
         resetModem(modem)
         sending_tone = False
 
@@ -180,7 +180,8 @@ def update_dial_tone(modem):
                 dial_tone_counter += BUFFER_LENGTH
                 if dial_tone_counter >= len(dial_tone_wav):
                     dial_tone_counter = 0
-                logging.info("Broadcast dial tone segment")
+
+                #logging.info("Broadcast dial tone segment")
                 modem.write(tonebytes)
                 modem.flush()
                 time_since_last_dial_tone = now
@@ -211,20 +212,24 @@ def main():
                 delta = (now - timeSinceDigit).total_seconds()
                 if delta > 3:
                     logging.info("Answering call...")
-                    disconnectModem(modem)
-                    runMgetty()
-                    # Breifly wait while mgetty is starting.
-                    time.sleep(5)
-                    # Put line back off-hook
-                    killMgetty()
-
-                    #resetModem(modem)
-                    #send_command(modem, "ATH0")
-                    #time.sleep(4)
-                    #send_command(modem, "ATA")
-                    #time.sleep(3)
-                    #runPon()
                     #disconnectModem(modem)
+                    #runMgetty()
+                    # Breifly wait while mgetty is starting.
+                    #time.sleep(5)
+                    # Put line back off-hook
+                    #killMgetty()
+
+                    if not dial_tone_enabled:
+                        resetModem(modem)
+                        send_command(modem, "ATH0")
+
+                    time.sleep(4)
+                    send_command(modem, "ATA")
+                    time.sleep(3)
+                    runPon()
+                    time.sleep(1)
+                    disconnectModem(modem)
+                    time.sleep(1)
 
                     logging.info("Call answered!")
                     for line in sh.tail("-f", "/var/log/syslog", "-n", "10", _iter=True):
@@ -237,7 +242,10 @@ def main():
                             timeSinceDigit = None
                             mode = "LISTENING"
                             modem.close()
-                            modem = initModem() # Reset the modem
+                            modem = initModem() # Reset the mode
+                            if dial_tone_enabled and dial_tone_wav:
+                                start_dial_tone(modem)
+
                             break
 
             update_dial_tone(modem)
@@ -264,3 +272,4 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger().addHandler(logging.StreamHandler())
     sys.exit(main())
+
