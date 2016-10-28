@@ -211,7 +211,11 @@ def main():
                 now = datetime.now()
                 delta = (now - timeSinceDigit).total_seconds()
                 if delta > 3:
-                    logging.info("Answering call...")
+                    if dial_tone_enabled:
+                        logging.info("\nStopping dial tone...\n")
+                        stop_dial_tone(modem)
+
+                    logging.info("Answering call...\n")
                     #disconnectModem(modem)
                     #runMgetty()
                     # Breifly wait while mgetty is starting.
@@ -260,8 +264,7 @@ def main():
                     char = modem.read()
                     digit = int(char)
                     timeSinceDigit = datetime.now()
-                    stop_dial_tone(modem)
-                    print("{}".format(digit))
+                    logging.info("{}".format(digit))
                 except (TypeError, ValueError):
                     pass
 
