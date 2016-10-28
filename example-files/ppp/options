@@ -1,0 +1,9 @@
+debug
+auth
+login
+require-pap
+asyncmap 0
+ms-dns 192.168.1.1
+proxyarp
+ktune
+noccp
