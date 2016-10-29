@@ -8,6 +8,7 @@ import time
 import sys
 import sh
 import time
+import argparse
 
 from datetime import datetime, timedelta
 
@@ -32,12 +33,16 @@ dial_tone_wav = None
 time_since_last_dial_tone = 0
 dial_tone_counter = 0
 sending_tone = False
+dial_tone_enabled = False
+use_mgetty = True
+use_pon = False
 
 def runPon():
     logging.info("Starting pon...\n")
     logging.info(subprocess.check_output(["sudo", "pon", "dreamcast"]))
 
 def runMgetty():
+    logging.info("Starting mgetty...\n")
     subprocess.Popen(['sudo', '/sbin/mgetty', '-s', "{}".format(COMM_SPEED), '-D', "/dev/{}".format(MODEM_DEVICE), "-m", "\"\" ATZ0 OK ATM0 OK ATH0 OK"],
         shell=False,
         stdout=subprocess.PIPE,
@@ -103,7 +108,8 @@ def initModem():
     send_command(modem, "AT+FCLASS=8")  # Switch to Voice mode
     send_command(modem, "AT+VLS=1") # Go off-hook
 
-    if "--enable-dial-tone" in sys.argv:
+    #if "--enable-dial-tone" in sys.argv:
+    if dial_tone_enabled:
         print("Dial tone enabled, starting transmission...\n")
         send_command(modem, "AT+VSM=129,8000")
         send_command(modem, "AT+VTX") # Transmit audio (for dial tone)
@@ -154,7 +160,9 @@ def stop_dial_tone(modem):
         send_escape(modem)
         send_command(modem, "ATH0") # Go on-hook
         time.sleep(1)
-        resetModem(modem)
+        if use_pon:
+            resetModem(modem)
+
         sending_tone = False
 
 def send_escape(modem):
@@ -187,7 +195,8 @@ def update_dial_tone(modem):
                 time_since_last_dial_tone = now
 
 def main():
-    dial_tone_enabled = "--enable-dial-tone" in sys.argv
+    global dial_tone_enabled
+    #dial_tone_enabled = "--enable-dial-tone" in sys.argv
 
     graphic()
     
@@ -200,7 +209,9 @@ def main():
     if dial_tone_enabled:
         read_dial_tone()
         if dial_tone_wav:
-           start_dial_tone(modem)
+            start_dial_tone(modem)
+        else:
+            dial_tone_enabled = False
     
     while True:
         if mode == "LISTENING":
@@ -216,24 +227,28 @@ def main():
                         stop_dial_tone(modem)
 
                     logging.info("Answering call...\n")
-                    #disconnectModem(modem)
-                    #runMgetty()
-                    # Breifly wait while mgetty is starting.
-                    #time.sleep(5)
-                    # Put line back off-hook
-                    #killMgetty()
 
-                    if not dial_tone_enabled:
-                        resetModem(modem)
-                        send_command(modem, "ATH0")
+                    if use_mgetty:
+                        logging.info("")
+                        disconnectModem(modem)
+                        runMgetty()
+                        # Breifly wait while mgetty is starting.
+                        time.sleep(5)
+                        # Put line back off-hook
+                        killMgetty()
 
-                    time.sleep(4)
-                    send_command(modem, "ATA")
-                    time.sleep(3)
-                    runPon()
-                    time.sleep(1)
-                    disconnectModem(modem)
-                    time.sleep(1)
+                    elif use_pon:
+                        if not dial_tone_enabled:
+                            resetModem(modem)
+                            send_command(modem, "ATH0")
+
+                        time.sleep(4)
+                        send_command(modem, "ATA")
+                        time.sleep(3)
+                        runPon()
+                        time.sleep(1)
+                        disconnectModem(modem)
+                        time.sleep(1)
 
                     logging.info("Call answered!")
                     for line in sh.tail("-f", "/var/log/syslog", "-n", "10", _iter=True):
@@ -274,5 +289,24 @@ def main():
 if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger().addHandler(logging.StreamHandler())
+
+    parser = argparse.ArgumentParser(description="Establish a PC-DC server connection")
+    parser.add_argument("--enable-dial-tone", help="Generate dial tone on line", action="store_true", default=False)
+    parser.add_argument("--use-mgetty", help="Use mgetty to make final connection. (Default)", action="store_true", default=False)
+    parser.add_argument("--use-pon", help="Use pon to make final connection", action="store_true", default=False)
+    args = parser.parse_args()
+
+    if args.use_mgetty and args.use_pon:
+        logging.error("Cannot specify mgetty and pon together. Exiting.")
+        sys.exit(1)
+
+    elif not args.use_mgetty and not args.use_pon:
+        # Use mgetty by default
+        args.use_mgetty = True
+
+    dial_tone_enabled = args.enable_dial_tone
+    use_mgetty = args.use_mgetty
+    use_pon = args.use_pon
+
     sys.exit(main())
 
