@@ -3,7 +3,9 @@ auth
 login
 require-pap
 asyncmap 0
-ms-dns 192.168.1.1
+# Use DreamPi DNS server for non-dnsmasq config.
+ms-dns 46.101.91.123
 proxyarp
 ktune
 noccp
+
