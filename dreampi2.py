@@ -64,25 +64,30 @@ def send_command(modem, command, timeout=30):
     search = True
     while search:
         new_data = modem.readline()
+        endofline = b'\n' in new_data
         #print("LINE {}\n".format(new_data))
         #line = line + new_data.decode()
         #print("LINE {}".format(new_data))
         line = line + new_data.decode("unicode_escape")
         #print("OK" == line.strip())
-        line = line.strip()
+        if endofline:
+            line = line.strip()
+
         #if (new_data):
         #    print("DATA FOUND: {}".format(new_data))
         #    print('\n' in new_data)
-        # Partial match response in line
-        for response in VALID_RESPONSES:
-            if response in line:
-                #logging.info("FOUND RESPONSE: BREAK")
-                logging.info(line + '\n')
-                line = ""
-                search = False
-                break
+        # Partial match response in line. Only look for response
+        # at the end of the line.
+        if line and endofline:
+            for response in VALID_RESPONSES:
+                if response in line:
+                    #logging.info("FOUND RESPONSE: BREAK")
+                    logging.info(line + '\n')
+                    line = ""
+                    search = False
+                    break
 
-        if b'\n' in new_data:
+        if endofline:
             line = ""
 
         if (datetime.now() - start).total_seconds() >= timeout:
@@ -127,6 +132,11 @@ def disconnectModem(modem):
         logging.info("Serial interface terminated.")
 
 def resetModem(modem):
+    # Clear input and output buffers
+    modem.reset_input_buffer()
+    modem.reset_output_buffer()
+
+    # Send initial commands to modem
     send_command(modem, "ATZ0") # RESET
     send_command(modem, "ATE0") # Don't echo our responses
     send_command(modem, "ATM0") # Disable modem speaker
@@ -159,17 +169,17 @@ def stop_dial_tone(modem):
         modem.flush()
         send_escape(modem)
         send_command(modem, "ATH0") # Go on-hook
-        time.sleep(1)
+        time.sleep(2)
         if use_pon:
             resetModem(modem)
 
         sending_tone = False
 
 def send_escape(modem):
-    time.sleep(1.0)
+    #time.sleep(1.0)
     modem.write(b"+++")
     modem.flush()
-    time.sleep(1.0)
+    #time.sleep(1.0)
 
 def update_dial_tone(modem):
     global time_since_last_dial_tone, dial_tone_counter
@@ -203,7 +213,7 @@ def main():
     modem = initModem()
     
     timeSinceDigit = None
-    
+
     mode = "LISTENING"
 
     if dial_tone_enabled:
@@ -218,7 +228,7 @@ def main():
             #Put code to generate dial tone here if you can figure it out.
             
             if timeSinceDigit is not None:
-                #Digits received, answer call
+                # Digits received, answer call
                 now = datetime.now()
                 delta = (now - timeSinceDigit).total_seconds()
                 if delta > 3:
@@ -244,7 +254,7 @@ def main():
 
                         time.sleep(4)
                         send_command(modem, "ATA")
-                        time.sleep(3)
+                        time.sleep(2)
                         runPon()
                         time.sleep(1)
                         disconnectModem(modem)
@@ -257,7 +267,7 @@ def main():
                             mode = "CONNECTED"
                         elif mode == "CONNECTED" and "Modem hangup" in line:
                             logging.info("Detected modem hang up, going back to listening")
-                            time.sleep(10) # Give the hangup some time
+                            time.sleep(5) # Give the hangup some time
                             timeSinceDigit = None
                             mode = "LISTENING"
                             modem.close()
@@ -268,17 +278,18 @@ def main():
                             break
 
             update_dial_tone(modem)
-            char = modem.read(1).strip()
+            tempchar = modem.read(1)
+            char = tempchar.strip()
             if not char:
                 continue
-            
+
             if ord(char) == 16:
                 #DLE character
                 #This code translates the tone digits to strings
                 try:
                     char = modem.read()
-                    digit = int(char)
                     timeSinceDigit = datetime.now()
+                    digit = int(char)
                     logging.info("{}".format(digit))
                 except (TypeError, ValueError):
                     pass
