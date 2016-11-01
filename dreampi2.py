@@ -213,6 +213,7 @@ def main():
     modem = initModem()
     
     timeSinceDigit = None
+    timeSinceLastRead = datetime.now()
 
     mode = "LISTENING"
 
@@ -230,8 +231,8 @@ def main():
             if timeSinceDigit is not None:
                 # Digits received, answer call
                 now = datetime.now()
-                delta = (now - timeSinceDigit).total_seconds()
-                if delta > 3:
+                delta = (now - timeSinceLastRead).total_seconds()
+                if delta >= 4:
                     if dial_tone_enabled:
                         logging.info("\nStopping dial tone...\n")
                         stop_dial_tone(modem)
@@ -283,13 +284,15 @@ def main():
             if not char:
                 continue
 
+            # Data read from modem
+            timeSinceLastRead = datetime.now()
             if ord(char) == 16:
                 #DLE character
                 #This code translates the tone digits to strings
                 try:
                     char = modem.read()
-                    timeSinceDigit = datetime.now()
                     digit = int(char)
+                    timeSinceDigit = datetime.now()
                     logging.info("{}".format(digit))
                 except (TypeError, ValueError):
                     pass
