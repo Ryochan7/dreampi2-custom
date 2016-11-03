@@ -100,7 +100,8 @@ def modemConnect():
     logging.info("Connecting to modem...:")
     
     #dev = serial.Serial("/dev/" + MODEM_DEVICE, 460800, timeout=0)
-    dev = serial.Serial("/dev/" + MODEM_DEVICE, COMM_SPEED, timeout=0)
+    dev = serial.Serial("/dev/" + MODEM_DEVICE, COMM_SPEED, timeout=0.01,
+        write_timeout=0.0)
     
     logging.info("Connected.")
     return dev
