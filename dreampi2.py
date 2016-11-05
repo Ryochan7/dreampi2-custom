@@ -8,6 +8,7 @@ import time
 import sys
 import sh
 import time
+import threading
 import argparse
 
 from datetime import datetime, timedelta
@@ -30,12 +31,44 @@ MODEM_DEVICE = "ttyUSB0"
 COMM_SPEED = 38400
 
 dial_tone_wav = None
+dial_tone_thread = None
 time_since_last_dial_tone = 0
 dial_tone_counter = 0
 sending_tone = False
 dial_tone_enabled = False
 use_mgetty = True
 use_pon = False
+
+class DialToneThread(threading.Thread):
+    def __init__(self, modem):
+        super(DialToneThread, self).__init__()
+        self.update_tone = False
+        self.update_tone_lock = threading.Lock()
+        self.modem = modem
+        self.close_modem = False
+
+    def run(self):
+        start_dial_tone(self.modem)
+        update_tone = False
+        with self.update_tone_lock:
+            update_tone = self.update_tone = True
+
+        while update_tone:
+            update_dial_tone(self.modem)
+            with self.update_tone_lock:
+                update_tone = self.update_tone
+
+        with self.update_tone_lock:
+            if not self.close_modem:
+                stop_dial_tone(self.modem)
+            else:
+                self.modem.close()
+
+    def stop_broadcast(self, close_modem=False):
+        with self.update_tone_lock:
+            self.update_tone = False
+            self.close_modem = close_modem
+
 
 def runPon():
     logging.info("Starting pon...\n")
@@ -111,12 +144,12 @@ def initModem():
 
     # Send the initialization string to the modem
     resetModem(modem)
-    send_command(modem, "AT+FCLASS=8")  # Switch to Voice mode
+    send_command(modem, "AT+FCLASS=8") # Switch to Voice mode
     send_command(modem, "AT+VLS=1") # Go off-hook
 
     #if "--enable-dial-tone" in sys.argv:
     if dial_tone_enabled:
-        print("Dial tone enabled, starting transmission...\n")
+        logging.info("Dial tone enabled, starting transmission...\n")
         send_command(modem, "AT+VSM=129,8000")
         send_command(modem, "AT+VTX") # Transmit audio (for dial tone)
         # Generate tone via modem. Only lasts 4 seconds.
@@ -206,7 +239,7 @@ def update_dial_tone(modem):
                 time_since_last_dial_tone = now
 
 def main():
-    global dial_tone_enabled
+    global dial_tone_enabled, dial_tone_thread
     #dial_tone_enabled = "--enable-dial-tone" in sys.argv
 
     graphic()
@@ -224,7 +257,12 @@ def main():
             start_dial_tone(modem)
         else:
             dial_tone_enabled = False
-    
+
+    dial_tone_thread = None
+    if dial_tone_enabled:
+        dial_tone_thread = DialToneThread(modem)
+        dial_tone_thread.start()
+
     while True:
         if mode == "LISTENING":
             #Put code to generate dial tone here if you can figure it out.
@@ -236,7 +274,10 @@ def main():
                 if delta >= 4:
                     if dial_tone_enabled:
                         logging.info("\nStopping dial tone...\n")
-                        stop_dial_tone(modem)
+                        #stop_dial_tone(modem)
+                        dial_tone_thread.stop_broadcast()
+                        dial_tone_thread.join()
+                        dial_tone_thread = None
 
                     logging.info("Answering call...\n")
 
@@ -275,7 +316,9 @@ def main():
                             modem.close()
                             modem = initModem() # Reset the mode
                             if dial_tone_enabled and dial_tone_wav:
-                                start_dial_tone(modem)
+                                dial_tone_thread = DialToneThread(modem)
+                                dial_tone_thread.start()
+                                #start_dial_tone(modem)
 
                             break
 
@@ -323,5 +366,21 @@ if __name__ == '__main__':
     use_mgetty = args.use_mgetty
     use_pon = args.use_pon
 
-    sys.exit(main())
+    #result = main()
+
+    # Default to an error result.
+    result = 1
+    try:
+        result = main()
+    except KeyboardInterrupt as e:
+        result = 0
+
+    logging.info("Quitting program.")
+    if dial_tone_thread and dial_tone_thread.is_alive():
+        dial_tone_thread.stop_broadcast(close_modem=True)
+        dial_tone_thread.join()
+        dial_tone_thread = None
+
+
+    sys.exit(result)
 
