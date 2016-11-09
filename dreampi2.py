@@ -210,10 +210,11 @@ def stop_dial_tone(modem):
         sending_tone = False
 
 def send_escape(modem):
-    #time.sleep(1.0)
+    # Use sleep periods before and after escape sequence.
+    time.sleep(1.0)
     modem.write(b"+++")
     modem.flush()
-    #time.sleep(1.0)
+    time.sleep(1.0)
 
 def update_dial_tone(modem):
     global time_since_last_dial_tone, dial_tone_counter
