@@ -113,12 +113,18 @@ def send_command(modem, command, timeout=30):
         # at the end of the line.
         if line and endofline:
             for response in VALID_RESPONSES:
-                if response in line:
+                known_response = response in line
+                if known_response and response is not "ERROR":
+                    # Non error response
                     #logging.info("FOUND RESPONSE: BREAK")
                     logging.info(line + '\n')
                     line = ""
                     search = False
                     break
+                elif known_response:
+                    # An error occurred. Raise exception.
+                    logging.info(line + '\n')
+                    raise IOError("An error was returned from the modem.")
 
         if endofline:
             line = ""
