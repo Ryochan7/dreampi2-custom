@@ -245,6 +245,13 @@ def update_dial_tone(modem):
                 modem.flush()
                 time_since_last_dial_tone = now
 
+def createTailIter():
+    # Start tail before pppd is started so the pppd
+    # messages should be received in more situations
+    tailIter = sh.tail("-f", "/var/log/syslog", "-n", "10", _iter=True)
+    return tailIter
+
+
 def main():
     global dial_tone_enabled, dial_tone_thread
     #dial_tone_enabled = "--enable-dial-tone" in sys.argv
@@ -288,6 +295,7 @@ def main():
 
                     logging.info("Answering call...\n")
 
+                    tailIter = None
                     if use_mgetty:
                         logging.info("")
                         disconnectModem(modem)
@@ -296,25 +304,37 @@ def main():
                         time.sleep(5)
                         # Put line back off-hook
                         killMgetty()
+                        # Start tail on syslog file
+                        tailIter = createTailIter()
 
                     elif use_pon:
                         if not dial_tone_enabled:
                             resetModem(modem)
                             send_command(modem, "ATH0")
 
+                        # Put line back off-hook
                         time.sleep(4)
                         send_command(modem, "ATA")
                         time.sleep(2)
+
+                        # Start tail on syslog file
+                        tailIter = createTailIter()
+
+                        # Start pppd
                         runPon()
                         time.sleep(1)
+
+                        # Disconnect the modem connection.
+                        # Let pppd handle modem.
                         disconnectModem(modem)
                         time.sleep(1)
 
                     logging.info("Call answered!")
-                    for line in sh.tail("-f", "/var/log/syslog", "-n", "10", _iter=True):
+                    for line in tailIter:
                         if mode == "LISTENING" and "remote IP address" in line:
                             logging.info("Connected!")
                             mode = "CONNECTED"
+
                         elif mode == "CONNECTED" and "Modem hangup" in line:
                             logging.info("Detected modem hang up, going back to listening")
                             time.sleep(5) # Give the hangup some time
