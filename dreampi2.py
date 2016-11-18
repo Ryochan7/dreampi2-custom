@@ -337,6 +337,7 @@ def main():
 
                         elif mode == "CONNECTED" and "Modem hangup" in line:
                             logging.info("Detected modem hang up, going back to listening")
+                            tailIter.kill()
                             time.sleep(5) # Give the hangup some time
                             timeSinceDigit = None
                             mode = "LISTENING"
