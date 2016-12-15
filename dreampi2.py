@@ -26,9 +26,9 @@ def graphic():
 #MODEM_DEVICE = "ttyACM0"
 MODEM_DEVICE = "ttyUSB0"
 #COMM_SPEED = 230400
-#COMM_SPEED = 57600
+COMM_SPEED = 57600
 #COMM_SPEED = 115200
-COMM_SPEED = 38400
+#COMM_SPEED = 38400
 
 dial_tone_wav = None
 dial_tone_thread = None
